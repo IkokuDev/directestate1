@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "Property": {
+      "title": "Property",
+      "description": "A real estate property listing.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["Buy", "Rent", "Invest"] },
+        "price": { "type": "number" },
+        "location": { "type": "string" },
+        "beds": { "type": "number" },
+        "baths": { "type": "number" },
+        "sqft": { "type": "number" },
+        "description": { "type": "string" },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "verified": { "type": "boolean" },
+        "ownerId": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "ownerVerified": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["title", "type", "price", "location", "description", "ownerId", "ownerName", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "A user of the platform.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["buyer", "seller", "agent", "admin"] },
+        "verified": { "type": "boolean" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A chat message between users.",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["senderId", "receiverId", "propertyId", "text", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/properties/{propertyId}": {
+      "schema": { "$ref": "#/entities/Property" },
+      "description": "Collection of all properties."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Collection of all users."
+    },
+    "/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Collection of all messages."
+    }
+  }
+}

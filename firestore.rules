@@ -1,0 +1,134 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: properties
+    // Document ID: auto-generated
+    // Fields:
+    //   - title: string (required)
+    //   - type: string (required, 'Buy', 'Rent', 'Invest')
+    //   - price: number (required, > 0)
+    //   - location: string (required)
+    //   - beds: number (optional, >= 0)
+    //   - baths: number (optional, >= 0)
+    //   - sqft: number (optional, >= 0)
+    //   - description: string (required, < 5000 chars)
+    //   - images: list of strings (optional, < 10 items)
+    //   - verified: boolean (optional)
+    //   - ownerId: string (required, immutable)
+    //   - ownerName: string (required)
+    //   - ownerVerified: boolean (optional)
+    //   - createdAt: number (required, immutable)
+    //
+    // Collection: users
+    // Document ID: userId
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - name: string (required, < 100 chars)
+    //   - email: string (required)
+    //   - role: string (required, 'buyer', 'seller', 'agent', 'admin')
+    //   - verified: boolean (optional)
+    //
+    // Collection: messages
+    // Document ID: auto-generated
+    // Fields:
+    //   - senderId: string (required, immutable)
+    //   - receiverId: string (required, immutable)
+    //   - propertyId: string (required, immutable)
+    //   - text: string (required, < 1000 chars)
+    //   - timestamp: number (required, immutable)
+    //
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.ownerId;
+    }
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "ikoku.michael@gmail.com" && request.auth.token.email_verified == true));
+    }
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    function isValidString(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+    
+    // Domain Validators
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'role', 'verified']) &&
+             data.uid is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string &&
+             data.role in ['buyer', 'seller', 'agent', 'admin'] &&
+             (!('verified' in data) || data.verified is bool);
+    }
+
+    function isValidProperty(data) {
+      return hasOnlyAllowedFields(['title', 'type', 'price', 'location', 'beds', 'baths', 'sqft', 'description', 'images', 'verified', 'ownerId', 'ownerName', 'ownerVerified', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.type in ['Buy', 'Rent', 'Invest'] &&
+             data.price is number && data.price > 0 &&
+             data.location is string && data.location.size() > 0 && data.location.size() < 200 &&
+             (!('beds' in data) || (data.beds is number && data.beds >= 0)) &&
+             (!('baths' in data) || (data.baths is number && data.baths >= 0)) &&
+             (!('sqft' in data) || (data.sqft is number && data.sqft >= 0)) &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 5000 &&
+             (!('images' in data) || (data.images is list && data.images.size() <= 10)) &&
+             (!('verified' in data) || data.verified is bool) &&
+             data.ownerId is string && data.ownerId == request.auth.uid &&
+             data.ownerName is string && data.ownerName.size() > 0 && data.ownerName.size() < 100 &&
+             (!('ownerVerified' in data) || data.ownerVerified is bool) &&
+             data.createdAt is number;
+    }
+
+    function isValidMessage(data) {
+      return hasOnlyAllowedFields(['senderId', 'receiverId', 'propertyId', 'text', 'timestamp']) &&
+             data.senderId is string && data.senderId == request.auth.uid &&
+             data.receiverId is string &&
+             data.propertyId is string &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 1000 &&
+             data.timestamp is number;
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated(); // Allow reading profiles for property owners/chat
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.uid == userId && (request.resource.data.role in ['buyer', 'seller', 'agent'] || isAdmin());
+      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && areImmutableFieldsUnchanged(['uid']) && (request.resource.data.role == resource.data.role || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /properties/{propertyId} {
+      allow read: if true; // Publicly readable
+      allow create: if isAuthenticated() && isValidProperty(request.resource.data) && (!('verified' in request.resource.data) || request.resource.data.verified == false || isAdmin());
+      allow update: if isAuthenticated() && isValidProperty(request.resource.data) && isDocOwner() && areImmutableFieldsUnchanged(['ownerId', 'createdAt']) && (request.resource.data.verified == resource.data.verified || isAdmin());
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidMessage(request.resource.data);
+      allow update: if false; // Messages are immutable
+      allow delete: if false;
+    }
+  }
+}
